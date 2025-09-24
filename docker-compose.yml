@@ -51,7 +51,23 @@ services:
       timeout: 5s
       retries: 5
 
-  # Golem DB Sync Service
+  # Real-time Golem DB Sync Service
+  golem-realtime-sync:
+    image: oven/bun:alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    command: sh -c "bun install && node real-time-sync.js"
+    depends_on:
+      - db
+      - umami
+    restart: unless-stopped
+
+  # Manual Golem DB Sync Service (legacy)
   golem-sync:
     image: oven/bun:alpine
     working_dir: /app
@@ -61,7 +77,7 @@ services:
       - .env
     environment:
       - NODE_ENV=production
-    command: sh -c "ls -la /app && cat /app/package.json && bun install && bun run golem-sync.js sync"
+    command: sh -c "bun install && node golem-sync.js sync"
     depends_on:
       - db
       - umami

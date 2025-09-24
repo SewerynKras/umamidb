@@ -7,6 +7,7 @@
     "sync": "node golem-sync.js sync",
     "query": "node golem-sync.js query",
     "sync-hourly": "node golem-sync.js sync",
+    "realtime-sync": "node real-time-sync.js",
     "install-deps": "bun install"
   },
   "dependencies": {
