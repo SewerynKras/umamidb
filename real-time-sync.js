@@ -7,9 +7,9 @@ require('dotenv').config();
 // Konfiguracja
 const UMAMI_DB_URL = process.env.DATABASE_URL;
 const GOLEM_CONFIG = {
-  chainId: 60138453025,
-  rpcUrl: 'https://kaolin.holesky.golem-base.io/rpc',
-  wsUrl: 'wss://kaolin.holesky.golem-base.io/ws',
+  chainId: process.env.GOLEM_CHAIN_ID || 60138453025,
+  rpcUrl: process.env.GOLEM_RPC_URL || 'https://kaolin.hoodi.arkiv.network/rpc',
+  wsUrl: process.env.GOLEM_WS_URL || 'wss://kaolin.hoodi.arkiv.network/rpc/ws',
   privateKey: process.env.GOLEM_PRIVATE_KEY
 };
 
@@ -114,10 +114,10 @@ class SyncQueue {
         { key: 'source', value: 'umami' },
         { key: 'website_id', value: item.website_id || '' },
         { key: 'timestamp', value: item.timestamp || new Date().toISOString() },
+        { key: 'umami_id', value: item.umami_id || "" },
         ...(item.metadata ? Object.entries(item.metadata).map(([k, v]) => ({ key: k, value: String(v) })) : [])
       ],
       numericAnnotations: [
-        { key: 'umami_id', value: item.umami_id || 0 },
         { key: 'sync_time', value: Math.floor(Date.now() / 1000) },
         { key: 'batch_size', value: batch.length }
       ]
@@ -167,11 +167,12 @@ function calculateBTL(days = 1) {
 
 // Real-time sync functions
 async function syncPageview(websiteEvent) {
+  const created_at = typeof websiteEvent.created_at === 'string' ? new Date(websiteEvent.created_at) : websiteEvent.created_at;
   const data = {
     type: 'pageview',
     website_id: websiteEvent.website_id,
     umami_id: websiteEvent.event_id,
-    timestamp: websiteEvent.created_at.toISOString(),
+    timestamp: created_at.toISOString(),
     data: {
       event_id: websiteEvent.event_id,
       website_id: websiteEvent.website_id,
@@ -182,7 +183,7 @@ async function syncPageview(websiteEvent) {
       referrer_domain: websiteEvent.referrer_domain,
       page_title: websiteEvent.page_title,
       hostname: websiteEvent.hostname,
-      created_at: websiteEvent.created_at.toISOString()
+      created_at: created_at.toISOString()
     },
     metadata: {
       url_path: websiteEvent.url_path || '',
@@ -195,11 +196,12 @@ async function syncPageview(websiteEvent) {
 }
 
 async function syncCustomEvent(websiteEvent) {
+  const created_at = typeof websiteEvent.created_at === 'string' ? new Date(websiteEvent.created_at) : websiteEvent.created_at;
   const data = {
     type: 'event',
     website_id: websiteEvent.website_id,
     umami_id: websiteEvent.event_id,
-    timestamp: websiteEvent.created_at.toISOString(),
+    timestamp: created_at.toISOString(),
     data: {
       event_id: websiteEvent.event_id,
       website_id: websiteEvent.website_id,
@@ -207,7 +209,7 @@ async function syncCustomEvent(websiteEvent) {
       event_name: websiteEvent.event_name,
       url_path: websiteEvent.url_path,
       hostname: websiteEvent.hostname,
-      created_at: websiteEvent.created_at.toISOString()
+      created_at: created_at.toISOString()
     },
     metadata: {
       event_name: websiteEvent.event_name || '',
@@ -220,11 +222,12 @@ async function syncCustomEvent(websiteEvent) {
 }
 
 async function syncSession(session) {
+  const created_at = typeof session.created_at === 'string' ? new Date(session.created_at) : session.created_at;
   const data = {
     type: 'session',
     website_id: session.website_id,
     umami_id: session.session_id,
-    timestamp: session.created_at.toISOString(),
+    timestamp: created_at.toISOString(),
     data: {
       session_id: session.session_id,
       website_id: session.website_id,
@@ -236,7 +239,7 @@ async function syncSession(session) {
       country: session.country,
       region: session.region,
       city: session.city,
-      created_at: session.created_at.toISOString()
+      created_at: created_at.toISOString()
     },
     metadata: {
       country: session.country || 'unknown',
