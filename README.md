@@ -1,12 +1,12 @@
-# 📊 Umami Analytics - Golem DB Edition
+# 📊 Umami Analytics - Arkiv DB Edition
 
-Privacy-first web analytics with blockchain backup powered by Golem DB storage.
+Privacy-first web analytics with blockchain backup powered by Arkiv DB storage.
 
 ## ✨ Features
 
 - **🔒 Privacy First**: No cookies, no cross-site tracking, GDPR compliant
 - **⚡ Lightweight**: 2KB tracking script that won't slow down your website
-- **⛓️ Blockchain Backup**: Automatic data sync to Golem DB for decentralized storage
+- **⛓️ Blockchain Backup**: Automatic data sync to Arkiv DB for decentralized storage
 - **🌐 Multi-Website**: Track multiple websites from one dashboard
 - **📊 Real-time Analytics**: Live dashboard with essential metrics
 - **🚀 Self-hosted**: Full control over your data
@@ -15,7 +15,7 @@ Privacy-first web analytics with blockchain backup powered by Golem DB storage.
 
 - **Frontend**: Next.js 15, React 18, Tailwind CSS
 - **Backend**: Node.js, PostgreSQL 15, Prisma ORM
-- **Blockchain**: Golem DB on Holesky testnet
+- **Blockchain**: Arkiv DB (Kaolin testnet)
 - **Infrastructure**: Docker Compose, Traefik reverse proxy
 - **Analytics**: Real-time tracking with session management
 
@@ -45,7 +45,7 @@ Privacy-first web analytics with blockchain backup powered by Golem DB storage.
    ```
 
 4. **Access dashboard**
-   - Open: https://umami.golemdb.io
+   - Open: <https://umami.golemdb.io>
    - Login: `admin`
    - Password: `[check UMAMI_ADMIN_PASSWORD in .env]`
 
@@ -70,10 +70,11 @@ POSTGRES_DB=umami
 POSTGRES_USER=umami_user
 POSTGRES_PASSWORD=YOUR_DB_PASSWORD
 
-# Golem DB Configuration
-GOLEM_PRIVATE_KEY=0xYOUR_PRIVATE_KEY
-GOLEM_DB_CHAIN_ID=60138453025
-GOLEM_DB_RPC_URL=https://kaolin.holesky.golem-base.io/rpc
+# Arkiv Configuration
+ARKIV_PRIVATE_KEY=0xYOUR_PRIVATE_KEY
+ARKIV_CHAIN_ID=60138453025
+ARKIV_RPC_URL=https://kaolin.hoodi.arkiv.network/rpc
+ARKIV_WS_URL=wss://kaolin.hoodi.arkiv.network/rpc/ws
 ```
 
 ### Adding Websites
@@ -84,7 +85,7 @@ Use the automated setup script:
 node setup-all-projects.js
 ```
 
-Or manually through the dashboard at https://umami.golemdb.io/dashboard
+Or manually through the dashboard at <https://umami.golemdb.io/dashboard>
 
 ## 📈 Adding Tracking to Your Website
 
@@ -117,7 +118,7 @@ labels:
   - "traefik.http.routers.myapp-script.service=umami-app@docker"
 ```
 
-## ⛓️ Golem DB Integration
+## ⛓️ Arkiv DB Integration
 
 ### Real-time Sync
 
@@ -146,12 +147,14 @@ Data is automatically synced to Golem DB blockchain **in real-time** using a sop
 ### Sync Services
 
 #### Real-time Sync (Default)
+
 ```bash
 # Runs automatically with main services
 docker compose up -d
 ```
 
 #### Legacy Manual Sync
+
 ```bash
 # One-time sync for historical data
 docker compose --profile sync up golem-sync
@@ -222,7 +225,7 @@ docker compose exec db psql -U umami_user -d umami
 
 ## 📁 Project Structure
 
-```
+```text
 ├── docker-compose.yml      # Main services configuration
 ├── real-time-sync.js       # Real-time blockchain sync with queue
 ├── golem-sync.js          # Legacy manual sync script
@@ -247,10 +250,10 @@ MIT License - see LICENSE file for details
 
 ## 🔗 Links
 
-- **Live Demo**: https://umami.golemdb.io
-- **Dashboard**: https://umami.golemdb.io/dashboard
-- **Umami Official**: https://umami.is
-- **Golem Network**: https://golem.network
+- **Live Demo**: <https://umami.golemdb.io>
+- **Dashboard**: <https://umami.golemdb.io/dashboard>
+- **Umami Official**: <https://umami.is>
+- **Arkiv Network**: <https://arkiv.network>
 
 ---
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-const { createClient } = require('golem-base-sdk');
 const https = require('https');
 const http = require('http');
 require('dotenv').config();

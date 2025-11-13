@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 
-const { createClient } = require('golem-base-sdk');
+const { createWalletClient, http } = require('@arkiv-network/sdk');
+const { kaolin } = require('@arkiv-network/sdk/chains');
+const { privateKeyToAccount } = require('@arkiv-network/sdk/accounts');
+const { ExpirationTime, jsonToPayload } = require('@arkiv-network/sdk/utils');
 const { Pool } = require('pg');
 require('dotenv').config();
 
 // Konfiguracja
 const UMAMI_DB_URL = process.env.DATABASE_URL;
-const GOLEM_CONFIG = {
-  chainId: process.env.GOLEM_CHAIN_ID || 60138453025,
-  rpcUrl: process.env.GOLEM_RPC_URL || 'https://kaolin.hoodi.arkiv.network/rpc',
-  wsUrl: process.env.GOLEM_WS_URL || 'wss://kaolin.hoodi.arkiv.network/rpc/ws',
-  privateKey: process.env.GOLEM_PRIVATE_KEY
+const ARKIV_CONFIG = {
+  chainId: Number(process.env.ARKIV_CHAIN_ID || 60138453025),
+  rpcUrl: process.env.ARKIV_RPC_URL || 'https://kaolin.hoodi.arkiv.network/rpc',
+  wsUrl: process.env.ARKIV_WS_URL || 'wss://kaolin.hoodi.arkiv.network/rpc/ws',
+  privateKey: process.env.ARKIV_PRIVATE_KEY
 };
+const HAS_CHAIN_OVERRIDE = Boolean(process.env.ARKIV_CHAIN_ID || process.env.ARKIV_RPC_URL || process.env.ARKIV_WS_URL);
 
 // Batch & Queue Configuration
 const BATCH_SIZE = 10;
@@ -24,7 +28,69 @@ const umami = new Pool({
   connectionString: UMAMI_DB_URL
 });
 
-let golemClient;
+let arkivClient;
+let arkivAccount;
+
+function buildChainConfig() {
+  if (!HAS_CHAIN_OVERRIDE && ARKIV_CONFIG.chainId === kaolin.id) {
+    return kaolin;
+  }
+
+  const defaultRpc = {
+    http: [ARKIV_CONFIG.rpcUrl]
+  };
+
+  if (ARKIV_CONFIG.wsUrl) {
+    defaultRpc.webSocket = [ARKIV_CONFIG.wsUrl];
+  }
+
+  return {
+    ...kaolin,
+    id: ARKIV_CONFIG.chainId,
+    rpcUrls: {
+      ...kaolin.rpcUrls,
+      default: defaultRpc
+    }
+  };
+}
+
+function normalisePrivateKey(value) {
+  if (!value.startsWith('0x')) {
+    return `0x${value}`;
+  }
+  return value;
+}
+
+function toAttributes(entries) {
+  const attributes = new Map();
+
+  entries.forEach(([key, value]) => {
+    if (key === undefined || key === null || value === undefined || value === null) {
+      return;
+    }
+
+    if (typeof value === 'number') {
+      attributes.set(key, { key, value });
+    } else {
+      attributes.set(key, { key, value: String(value) });
+    }
+  });
+
+  return Array.from(attributes.values());
+}
+
+function formatTimestamp(value) {
+  if (!value) {
+    return new Date().toISOString();
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString();
+  }
+
+  return date.toISOString();
+}
 
 // Queue system for batching
 class SyncQueue {
@@ -68,7 +134,7 @@ class SyncQueue {
     console.log(`📦 Processing batch of ${batch.length} items`);
 
     try {
-      await this.syncBatchToGolem(batch);
+      await this.syncBatchToArkiv(batch);
       console.log(`✅ Batch of ${batch.length} items synced successfully`);
     } catch (error) {
       console.error(`❌ Batch sync failed:`, error.message);
@@ -96,7 +162,7 @@ class SyncQueue {
     await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retryCount)));
 
     try {
-      await this.syncBatchToGolem(batch);
+      await this.syncBatchToArkiv(batch);
       console.log(`✅ Batch retry ${retryCount + 1} succeeded`);
     } catch (error) {
       console.error(`❌ Batch retry ${retryCount + 1} failed:`, error.message);
@@ -104,75 +170,77 @@ class SyncQueue {
     }
   }
 
-  async syncBatchToGolem(batch) {
-    // Convert batch items to Golem entities
-    const entities = batch.map(item => ({
-      data: Buffer.from(JSON.stringify(item.data)),
-      btl: calculateBTL(30), // 30 days
-      stringAnnotations: [
-        { key: 'type', value: item.type },
-        { key: 'source', value: 'umami' },
-        { key: 'website_id', value: item.website_id || '' },
-        { key: 'timestamp', value: item.timestamp || new Date().toISOString() },
-        { key: 'umami_id', value: item.umami_id || "" },
-        ...(item.metadata ? Object.entries(item.metadata).map(([k, v]) => ({ key: k, value: String(v) })) : [])
-      ],
-      numericAnnotations: [
-        { key: 'sync_time', value: Math.floor(Date.now() / 1000) },
-        { key: 'batch_size', value: batch.length }
-      ]
+  async syncBatchToArkiv(batch) {
+    await initGolem();
+    const syncTime = Math.floor(Date.now() / 1000);
+
+    const creates = batch.map(item => ({
+      payload: jsonToPayload(item.data),
+      contentType: 'application/json',
+      attributes: toAttributes([
+        ['type', item.type],
+        ['source', 'umami'],
+        ['website_id', item.website_id],
+        ['timestamp', formatTimestamp(item.timestamp)],
+        ['umami_id', item.umami_id],
+        ['sync_time', syncTime],
+        ['batch_size', batch.length],
+        ...(item.metadata ? Object.entries(item.metadata) : [])
+      ]),
+      expiresIn: calculateBTL(30)
     }));
 
-    // Batch write to Golem DB
-    const receipts = await golemClient.createEntities(entities);
+    const { createdEntities } = await arkivClient.mutateEntities({ creates });
 
-    if (receipts.length !== entities.length) {
-      throw new Error(`Expected ${entities.length} receipts, got ${receipts.length}`);
+    if (createdEntities.length !== creates.length) {
+      throw new Error(`Expected ${creates.length} receipts, got ${createdEntities.length}`);
     }
 
-    return receipts;
+    return createdEntities;
   }
 }
 
 // Global queue instance
 const syncQueue = new SyncQueue();
 
-// Inicjalizacja Golem DB
+// Inicjalizacja Arkiv DB
 async function initGolem() {
-  if (!GOLEM_CONFIG.privateKey) {
-    throw new Error('GOLEM_PRIVATE_KEY not set in .env');
+  if (arkivClient) {
+    return arkivClient;
   }
 
-  const accountData = {
-    tag: 'privatekey',
-    data: Buffer.from(GOLEM_CONFIG.privateKey.replace('0x', ''), 'hex')
-  };
+  if (!ARKIV_CONFIG.privateKey) {
+    throw new Error('ARKIV_PRIVATE_KEY not set in .env');
+  }
 
-  golemClient = await createClient(
-    GOLEM_CONFIG.chainId,
-    accountData,
-    GOLEM_CONFIG.rpcUrl,
-    GOLEM_CONFIG.wsUrl
-  );
+  const privateKey = normalisePrivateKey(ARKIV_CONFIG.privateKey.trim());
+  arkivAccount = privateKeyToAccount(privateKey);
 
-  console.log('✅ Connected to Golem DB');
-  console.log('📍 Address:', await golemClient.getOwnerAddress());
+  arkivClient = createWalletClient({
+    account: arkivAccount,
+    chain: buildChainConfig(),
+    transport: http(ARKIV_CONFIG.rpcUrl)
+  });
+
+  console.log('✅ Connected to Arkiv DB');
+  console.log('📍 Address:', arkivAccount.address);
+
+  return arkivClient;
 }
 
 // BTL calculation
 function calculateBTL(days = 1) {
-  const blocksPerDay = (24 * 60 * 60) / 2;
-  return Math.floor(days * blocksPerDay);
+  return ExpirationTime.fromDays(days);
 }
 
 // Real-time sync functions
 async function syncPageview(websiteEvent) {
-  const created_at = typeof websiteEvent.created_at === 'string' ? new Date(websiteEvent.created_at) : websiteEvent.created_at;
+  const createdAtIso = formatTimestamp(websiteEvent.created_at);
   const data = {
     type: 'pageview',
     website_id: websiteEvent.website_id,
     umami_id: websiteEvent.event_id,
-    timestamp: created_at.toISOString(),
+    timestamp: createdAtIso,
     data: {
       event_id: websiteEvent.event_id,
       website_id: websiteEvent.website_id,
@@ -183,7 +251,7 @@ async function syncPageview(websiteEvent) {
       referrer_domain: websiteEvent.referrer_domain,
       page_title: websiteEvent.page_title,
       hostname: websiteEvent.hostname,
-      created_at: created_at.toISOString()
+      created_at: createdAtIso
     },
     metadata: {
       url_path: websiteEvent.url_path || '',
@@ -196,12 +264,12 @@ async function syncPageview(websiteEvent) {
 }
 
 async function syncCustomEvent(websiteEvent) {
-  const created_at = typeof websiteEvent.created_at === 'string' ? new Date(websiteEvent.created_at) : websiteEvent.created_at;
+  const createdAtIso = formatTimestamp(websiteEvent.created_at);
   const data = {
     type: 'event',
     website_id: websiteEvent.website_id,
     umami_id: websiteEvent.event_id,
-    timestamp: created_at.toISOString(),
+    timestamp: createdAtIso,
     data: {
       event_id: websiteEvent.event_id,
       website_id: websiteEvent.website_id,
@@ -209,7 +277,7 @@ async function syncCustomEvent(websiteEvent) {
       event_name: websiteEvent.event_name,
       url_path: websiteEvent.url_path,
       hostname: websiteEvent.hostname,
-      created_at: created_at.toISOString()
+      created_at: createdAtIso
     },
     metadata: {
       event_name: websiteEvent.event_name || '',
@@ -222,12 +290,12 @@ async function syncCustomEvent(websiteEvent) {
 }
 
 async function syncSession(session) {
-  const created_at = typeof session.created_at === 'string' ? new Date(session.created_at) : session.created_at;
+  const createdAtIso = formatTimestamp(session.created_at);
   const data = {
     type: 'session',
     website_id: session.website_id,
     umami_id: session.session_id,
-    timestamp: created_at.toISOString(),
+    timestamp: createdAtIso,
     data: {
       session_id: session.session_id,
       website_id: session.website_id,
@@ -239,7 +307,7 @@ async function syncSession(session) {
       country: session.country,
       region: session.region,
       city: session.city,
-      created_at: created_at.toISOString()
+      created_at: createdAtIso
     },
     metadata: {
       country: session.country || 'unknown',
@@ -351,7 +419,7 @@ process.on('SIGINT', async () => {
 // Main function
 async function main() {
   try {
-    console.log('🚀 Starting Umami → Golem DB real-time sync...');
+    console.log('🚀 Starting Umami → Arkiv DB real-time sync...');
 
     await initGolem();
     await setupDatabaseTriggers();
